@@ -9,6 +9,12 @@
 #include "args.h"
 #include "my_string.h"
 
+/* BPF_PROG/BPF_KPROBE 매크로가 내부적으로 typeof를 사용하는데,
+ * 일부 컴파일러 환경에서 typeof를 키워드로 인식하지 못하는 경우를 대비한 패치 */
+#ifndef typeof
+#define typeof __typeof__
+#endif
+
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 #define EVIL_OPEN_CNT 100
