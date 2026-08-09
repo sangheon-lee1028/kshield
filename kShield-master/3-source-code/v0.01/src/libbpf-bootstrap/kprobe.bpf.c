@@ -15,6 +15,12 @@
 #define typeof __typeof__
 #endif
 
+/* lsm/file_permission 훅의 return -EPERM에서 사용.
+ * 일부 eBPF 컴파일 환경에서 errno.h가 포함되지 않아 EPERM이 미정의될 때를 대비한 패치 */
+#ifndef EPERM
+#define EPERM 1
+#endif
+
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 #define EVIL_OPEN_CNT 100
