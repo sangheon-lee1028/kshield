@@ -1,222 +1,228 @@
-# ifndef FILESYSTEM_H
-# define FILESYSTEM_H
+#ifndef FILESYSTEM_H
+#define FILESYSTEM_H
 
-# include "maps.h"
-# include "types.h"
-# include "const.h"
-# include "buffer.h"
-# include "vmlinux_flavors.h"
+#include "maps.h"
+#include "types.h"
+#include "const.h"
+#include "buffer.h"
 
 #define statfunc static __always_inline
 
-//PROTOTYPES
-statfunc unsigned short get_inode_mode_from_file(struct file *file); 
-statfunc unsigned int get_file_open_mode_from_file(struct file *file);
-statfunc struct mount *real_mount(struct vfsmount *mnt);
-statfunc struct dentry *get_mnt_root_ptr_from_vfsmnt(struct vfsmount *vfsmnt);
-statfunc struct dentry *get_d_parent_ptr_from_dentry(struct dentry *dentry);
-statfunc struct qstr get_d_name_from_dentry(struct dentry *dentry);
-statfunc size_t get_path_str_buf(struct path *path, buf_t *out_buf);
-statfunc void *get_path_str(struct path *path);
-statfunc u64 get_time_nanosec_timespec(struct timespec64 *ts);
-statfunc u64 get_ctime_nanosec_from_inode(struct inode *inode);
-statfunc u64 get_ctime_nanosec_from_file(struct file *file);
-statfunc dev_t get_dev_from_file(struct file *file);
-statfunc unsigned long get_inode_nr_from_file(struct file *file);
-statfunc file_id_t get_file_id(struct file *file);
-statfunc file_info_t get_file_info(struct file *file);
+/* ─────────────────────────────────────────────
+ * non-CO-RE filesystem helpers for Linux 5.13.x
+ * All struct field reads use bpf_probe_read_kernel.
+ * ───────────────────────────────────────────── */
 
-//FUNCTIONS
+statfunc buf_t *get_buf(int idx)
+{
+    return bpf_map_lookup_elem(&bufs, &idx);
+}
+
+/* inode->i_mode : always at offset 0 */
 statfunc unsigned short get_inode_mode_from_file(struct file *file)
 {
-    return BPF_CORE_READ(file, f_inode, i_mode);
-}
-
-statfunc struct mount *real_mount(struct vfsmount *mnt)
-{
-    return container_of(mnt, struct mount, mnt);
-    // container_of是一个定义在/include/linux/container_of.h的一个宏
-    // 它通过结构体成员变量地址获取这个结构体的地址
-}
-
-statfunc struct dentry *get_mnt_root_ptr_from_vfsmnt(struct vfsmount *vfsmnt)
-{
-    return BPF_CORE_READ(vfsmnt, mnt_root);
-}
-
-statfunc struct dentry *get_d_parent_ptr_from_dentry(struct dentry *dentry)
-{
-    return BPF_CORE_READ(dentry, d_parent);
-}
-
-statfunc struct qstr get_d_name_from_dentry(struct dentry *dentry)
-{
-    return BPF_CORE_READ(dentry, d_name);
-}
-
-// Read the file path to the given buffer, returning the start offset of the path.(待移植)
-statfunc size_t get_path_str_buf(struct path *path, buf_t *out_buf)
-{
-    if (path == NULL || out_buf == NULL) {
+    struct inode *inode = NULL;
+    unsigned short mode = 0;
+    bpf_probe_read_kernel(&inode, sizeof(inode), &file->f_inode);
+    if (!inode)
         return 0;
-    }
-
-    struct path f_path;
-    bpf_probe_read(&f_path, sizeof(struct path), path);
-    char slash = '/';
-    int zero = 0;
-    struct dentry *dentry = f_path.dentry;
-    struct vfsmount *vfsmnt = f_path.mnt;
-    struct mount *mnt_parent_p;
-    struct mount *mnt_p = real_mount(vfsmnt);
-    bpf_probe_read(&mnt_parent_p, sizeof(struct mount *), &mnt_p->mnt_parent);
-    u32 buf_off = (MAX_PERCPU_BUFSIZE >> 1);
-    struct dentry *mnt_root;
-    struct dentry *d_parent;
-    struct qstr d_name;
-    unsigned int len;
-    unsigned int off;
-    int sz;
-
-#pragma unroll
-    for (int i = 0; i < MAX_PATH_COMPONENTS; i++) {
-        mnt_root = get_mnt_root_ptr_from_vfsmnt(vfsmnt);
-        d_parent = get_d_parent_ptr_from_dentry(dentry);
-        if (dentry == mnt_root || dentry == d_parent) {
-            if (dentry != mnt_root) {
-                // We reached root, but not mount root - escaped?
-                break;
-            }
-            if (mnt_p != mnt_parent_p) {
-                // We reached root, but not global root - continue with mount point path
-                bpf_probe_read(&dentry, sizeof(struct dentry *), &mnt_p->mnt_mountpoint);
-                bpf_probe_read(&mnt_p, sizeof(struct mount *), &mnt_p->mnt_parent);
-                bpf_probe_read(&mnt_parent_p, sizeof(struct mount *), &mnt_p->mnt_parent);
-                vfsmnt = &mnt_p->mnt;
-                continue;
-            }
-            // Global root - path fully parsed
-            break;
-        }
-        // Add this dentry name to path
-        d_name = get_d_name_from_dentry(dentry);
-        len = (d_name.len + 1) & (MAX_STRING_SIZE - 1);// 0x1000
-        off = buf_off - len;
-        // Is string buffer big enough for dentry name?
-        sz = 0;
-        if (off <= buf_off) { // verify no wrap occurred
-            len = len & ((MAX_PERCPU_BUFSIZE >> 1) - 1);
-            sz = bpf_probe_read_str(
-                &(out_buf->buf[off & ((MAX_PERCPU_BUFSIZE >> 1) - 1)]), len, (void *) d_name.name);
-        } else
-            break;
-        if (sz > 1) {
-            buf_off -= 1; // remove null byte termination with slash sign
-            bpf_probe_read(&(out_buf->buf[buf_off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &slash);
-            buf_off -= sz - 1;
-        } else {
-            // If sz is 0 or 1 we have an error (path can't be null nor an empty string)
-            break;
-        }
-        dentry = d_parent;
-    }
-    if (buf_off == (MAX_PERCPU_BUFSIZE >> 1)) {
-        // memfd files have no path in the filesystem -> extract their name
-        buf_off = 0;
-        d_name = get_d_name_from_dentry(dentry);
-        bpf_probe_read_str(&(out_buf->buf[0]), MAX_STRING_SIZE, (void *) d_name.name);
-    } else {
-        // Add leading slash
-        buf_off -= 1;
-        bpf_probe_read(&(out_buf->buf[buf_off & (MAX_PERCPU_BUFSIZE - 1)]), 1, &slash);
-        // Null terminate the path string
-        bpf_probe_read(&(out_buf->buf[(MAX_PERCPU_BUFSIZE >> 1) - 1]), 1, &zero);
-    }
-    //bpf_printk("buf_off %d\n",buf_off);
-    return buf_off;
+    bpf_probe_read_kernel(&mode, sizeof(mode), &inode->i_mode);
+    return mode;
 }
 
-statfunc void *get_path_str(struct path *path)
-{
-    // Get per-cpu string buffer
-    buf_t *string_p = get_buf(STRING_BUF_IDX);
-    
-    if (string_p == NULL)
-        return NULL;
-
-    size_t buf_off = get_path_str_buf(path, string_p);
-    
-    return &string_p->buf[buf_off];
-}
-
-statfunc u64 get_time_nanosec_timespec(struct timespec64 *ts)
-{
-    time64_t sec = BPF_CORE_READ(ts, tv_sec);
-    if (sec < 0)
-        return 0;
-
-    long ns = BPF_CORE_READ(ts, tv_nsec);
-
-    return (sec * 1000000000L) + ns;
-}
-
-statfunc u64 get_ctime_nanosec_from_inode(struct inode *inode)
-{
-    struct timespec64 ts;
-    // bpf_core_field_exists是CO-RE提供的一个辅助函数，具体见 https://www.ebpf.top/post/bpf_core/
-    // Kernel 6.6 - 6.10
-    if (bpf_core_field_exists(((struct inode___older_v611 *) inode)->__i_ctime)) {
-        struct inode___older_v611 *old_inode_v611 = (void *) inode;
-        ts = BPF_CORE_READ(old_inode_v611, __i_ctime);
-    }
-    // Kernel < 6.6
-    else {
-        struct inode___older_v66 *old_inode_v66 = (void *) inode;
-        ts = BPF_CORE_READ(old_inode_v66, i_ctime);
-    }
-
-    return get_time_nanosec_timespec(&ts);
-}
-
-statfunc u64 get_ctime_nanosec_from_file(struct file *file)
-{
-    struct inode *f_inode = BPF_CORE_READ(file, f_inode);
-    return get_ctime_nanosec_from_inode(f_inode);
-}
-
-statfunc dev_t get_dev_from_file(struct file *file)
-{
-    return BPF_CORE_READ(file, f_inode, i_sb, s_dev);
-}
-
+/* inode->i_ino : offset depends on kernel config (see kernel_defs.h) */
 statfunc unsigned long get_inode_nr_from_file(struct file *file)
 {
-    return BPF_CORE_READ(file, f_inode, i_ino);
+    struct inode *inode = NULL;
+    unsigned long ino = 0;
+    bpf_probe_read_kernel(&inode, sizeof(inode), &file->f_inode);
+    if (!inode)
+        return 0;
+    bpf_probe_read_kernel(&ino, sizeof(ino),
+                          (char *)inode + INODE_INO_OFFSET);
+    return ino;
+}
+
+/* inode->i_sb->s_dev : i_sb at INODE_SB_OFFSET, s_dev at offset 16 in sb */
+statfunc dev_t get_dev_from_file(struct file *file)
+{
+    struct inode *inode = NULL;
+    struct super_block *sb = NULL;
+    dev_t dev = 0;
+    bpf_probe_read_kernel(&inode, sizeof(inode), &file->f_inode);
+    if (!inode)
+        return 0;
+    bpf_probe_read_kernel(&sb, sizeof(sb),
+                          (char *)inode + INODE_SB_OFFSET);
+    if (!sb)
+        return 0;
+    bpf_probe_read_kernel(&dev, sizeof(dev), &sb->s_dev);
+    return dev;
+}
+
+/* inode->i_ctime : at INODE_CTIME_OFFSET (layout-dependent, see kernel_defs.h)
+ * Kernel 5.13 always uses timespec64 i_ctime (not __i_ctime added in 6.6+).
+ */
+statfunc u64 get_ctime_nanosec_from_file(struct file *file)
+{
+    struct inode *inode = NULL;
+    struct timespec64 ts = {};
+    bpf_probe_read_kernel(&inode, sizeof(inode), &file->f_inode);
+    if (!inode)
+        return 0;
+    bpf_probe_read_kernel(&ts, sizeof(ts),
+                          (char *)inode + INODE_CTIME_OFFSET);
+    if (ts.tv_sec < 0)
+        return 0;
+    return (u64)ts.tv_sec * 1000000000ULL + (u64)ts.tv_nsec;
 }
 
 statfunc file_id_t get_file_id(struct file *file)
 {
-    file_id_t file_id = {};
-    if (file != NULL) {
-        file_id.ctime = get_ctime_nanosec_from_file(file);
-        file_id.device = get_dev_from_file(file);
-        file_id.inode = get_inode_nr_from_file(file);
+    file_id_t id = {};
+    if (!file)
+        return id;
+    id.ctime  = get_ctime_nanosec_from_file(file);
+    id.device = get_dev_from_file(file);
+    id.inode  = get_inode_nr_from_file(file);
+    return id;
+}
+
+/* ── Path string construction via dentry walk (non-CO-RE) ──
+ *
+ * Struct offsets used (5.13 x86_64, no CONFIG_LOCKDEP):
+ *   dentry->d_parent  : offset 24
+ *   dentry->d_name    : offset 32 (struct qstr, 16 bytes)
+ *     d_name.len      : offset 32+4 = 36 (u32)
+ *     d_name.name     : offset 32+8 = 40 (const char*)
+ *   vfsmount->mnt_root: offset  0
+ *   In struct mount (mnt embedded at +32):
+ *     mnt_parent      : (char*)vfsmnt - 16
+ *     mnt_mountpoint  : (char*)vfsmnt -  8
+ */
+#define DENTRY_D_PARENT_OFF  24
+#define DENTRY_D_NAME_OFF    32
+#define DENTRY_DNAME_LEN_OFF 36   /* d_name.len  = d_name+4  */
+#define DENTRY_DNAME_PTR_OFF 40   /* d_name.name = d_name+8  */
+#define VFSMNT_MNT_ROOT_OFF   0
+#define MOUNT_MNT_PARENT_FROM_VFSMNT  (-16)   /* (char*)vfsmnt + this */
+#define MOUNT_MNT_MOUNTPOINT_FROM_VFSMNT (-8) /* (char*)vfsmnt + this */
+
+statfunc void *get_path_str(struct path *path)
+{
+    buf_t *string_p = get_buf(STRING_BUF_IDX);
+    if (!string_p)
+        return NULL;
+
+    char slash = '/';
+    int  zero  = 0;
+
+    struct vfsmount *vfsmnt  = NULL;
+    struct dentry   *dentry  = NULL;
+
+    /* Read f_path.mnt and f_path.dentry via probe_read */
+    bpf_probe_read_kernel(&vfsmnt, sizeof(vfsmnt), &path->mnt);
+    bpf_probe_read_kernel(&dentry, sizeof(dentry), &path->dentry);
+
+    struct dentry   *mnt_parent_dentry = NULL;
+    struct vfsmount *mnt_parent_vfsmnt = NULL;
+
+    /* mnt_parent (struct mount*) is at (char*)vfsmnt - 16 */
+    bpf_probe_read_kernel(&mnt_parent_vfsmnt, sizeof(mnt_parent_vfsmnt),
+                          (char *)vfsmnt + MOUNT_MNT_PARENT_FROM_VFSMNT);
+
+    u32 buf_off = (MAX_PERCPU_BUFSIZE >> 1);
+
+#pragma unroll
+    for (int i = 0; i < MAX_PATH_COMPONENTS; i++) {
+        struct dentry *mnt_root   = NULL;
+        struct dentry *d_parent   = NULL;
+        unsigned int   d_name_len = 0;
+        const char    *d_name_ptr = NULL;
+
+        /* mnt_root = vfsmnt->mnt_root */
+        bpf_probe_read_kernel(&mnt_root, sizeof(mnt_root),
+                              (char *)vfsmnt + VFSMNT_MNT_ROOT_OFF);
+        /* d_parent = dentry->d_parent */
+        bpf_probe_read_kernel(&d_parent, sizeof(d_parent),
+                              (char *)dentry + DENTRY_D_PARENT_OFF);
+
+        if (dentry == mnt_root || dentry == d_parent) {
+            if (dentry != mnt_root)
+                break; /* escaped */
+
+            if (vfsmnt != mnt_parent_vfsmnt) {
+                /* cross mount point — climb up */
+                /* mnt_mountpoint is at (char*)vfsmnt - 8 */
+                bpf_probe_read_kernel(&dentry, sizeof(dentry),
+                                      (char *)vfsmnt + MOUNT_MNT_MOUNTPOINT_FROM_VFSMNT);
+                vfsmnt = mnt_parent_vfsmnt;
+                bpf_probe_read_kernel(&mnt_parent_vfsmnt, sizeof(mnt_parent_vfsmnt),
+                                      (char *)vfsmnt + MOUNT_MNT_PARENT_FROM_VFSMNT);
+                continue;
+            }
+            break; /* global root */
+        }
+
+        /* d_name.len and d_name.name */
+        bpf_probe_read_kernel(&d_name_len, sizeof(d_name_len),
+                              (char *)dentry + DENTRY_DNAME_LEN_OFF);
+        bpf_probe_read_kernel(&d_name_ptr, sizeof(d_name_ptr),
+                              (char *)dentry + DENTRY_DNAME_PTR_OFF);
+
+        unsigned int len = (d_name_len + 1) & (MAX_STRING_SIZE - 1);
+        unsigned int off = buf_off - len;
+        int sz = 0;
+
+        if (off <= buf_off) {
+            len = len & ((MAX_PERCPU_BUFSIZE >> 1) - 1);
+            sz = bpf_probe_read_kernel_str(
+                &string_p->buf[off & ((MAX_PERCPU_BUFSIZE >> 1) - 1)],
+                len, d_name_ptr);
+        } else {
+            break;
+        }
+
+        if (sz > 1) {
+            buf_off -= 1;
+            bpf_probe_read_kernel(&string_p->buf[buf_off & (MAX_PERCPU_BUFSIZE - 1)],
+                                  1, &slash);
+            buf_off -= sz - 1;
+        } else {
+            break;
+        }
+
+        dentry = d_parent;
     }
-    return file_id;
+
+    if (buf_off == (MAX_PERCPU_BUFSIZE >> 1)) {
+        /* no path found — use dentry name directly */
+        const char *d_name_ptr = NULL;
+        bpf_probe_read_kernel(&d_name_ptr, sizeof(d_name_ptr),
+                              (char *)dentry + DENTRY_DNAME_PTR_OFF);
+        bpf_probe_read_kernel_str(&string_p->buf[0], MAX_STRING_SIZE, d_name_ptr);
+    } else {
+        buf_off -= 1;
+        bpf_probe_read_kernel(&string_p->buf[buf_off & (MAX_PERCPU_BUFSIZE - 1)],
+                              1, &slash);
+        bpf_probe_read_kernel(&string_p->buf[(MAX_PERCPU_BUFSIZE >> 1) - 1],
+                              1, &zero);
+    }
+
+    return &string_p->buf[buf_off];
 }
 
 statfunc file_info_t get_file_info(struct file *file)
 {
-    file_info_t file_info = {};
-    long ret = 0;
-    if (file != NULL) {
-        // 获取文件id
-        file_info.id = get_file_id(file);
-        // 获取文件路径名
-        file_info.pathname_p = get_path_str(__builtin_preserve_access_index(&file->f_path));
-    }
-
-    return file_info;
+    file_info_t info = {};
+    if (!file)
+        return info;
+    info.id = get_file_id(file);
+    /* Read f_path (mnt+dentry) via probe_read then call get_path_str */
+    struct path p = {};
+    bpf_probe_read_kernel(&p, sizeof(p), &file->f_path);
+    info.pathname_p = get_path_str(&p);
+    return info;
 }
 
-# endif
+#endif /* FILESYSTEM_H */
