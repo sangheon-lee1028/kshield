@@ -239,4 +239,10 @@ struct trace_event_raw_sched_process_exec {
 #define S_IFREG  0100000
 #define S_IFDIR  0040000
 
+/* ── BPF subsystem headers ──
+ * Provides BPF_ANY, BPF_F_CURRENT_CPU, bpf_get_current_uid_gid, SEC, etc.
+ * Included here so every header that includes kernel_defs.h gets them. */
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+
 #endif /* KERNEL_DEFS_H */
