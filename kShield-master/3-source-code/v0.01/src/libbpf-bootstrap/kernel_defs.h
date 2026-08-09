@@ -23,6 +23,13 @@ typedef signed short       s16;
 typedef signed int         s32;
 typedef signed long long   s64;
 
+typedef unsigned long   size_t;    /* needed by my_string.h in C++ mode */
+#ifndef __cplusplus
+typedef unsigned char   bool;
+#define true  1
+#define false 0
+#endif
+
 typedef unsigned short  umode_t;
 typedef int             pid_t;
 typedef unsigned int    uid_t;
@@ -247,12 +254,13 @@ struct trace_event_raw_sched_process_exec {
 #define SEC(name)  __attribute__((section(name), used))
 #endif
 
-/* BTF-based BPF map definition helpers (maps.h uses these) */
+/* BTF-based BPF map definition helpers (maps.h uses these).
+ * __typeof__ instead of typeof: works in both C and C++ compiler modes. */
 #ifndef __uint
 #define __uint(name, val)  int (*name)[val]
 #endif
 #ifndef __type
-#define __type(name, val)  typeof(val) *name
+#define __type(name, val)  __typeof__(val) *name
 #endif
 
 /* Map-update flags */

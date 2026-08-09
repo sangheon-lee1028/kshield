@@ -52,7 +52,7 @@ volatile int open_cnt = 0;
 static __always_inline u32 get_modprobe_state(void)
 {
     u32 key = MODPROBE_STATE_KEY;
-    u32 *val = bpf_map_lookup_elem(&modprobe_state_map, &key);
+    u32 *val = (u32 *)bpf_map_lookup_elem(&modprobe_state_map, &key);
     return val ? *val : 0;
 }
 
@@ -148,11 +148,11 @@ int raw_tracepoint__sys_exit(struct bpf_raw_tracepoint_args *ctx)
     u32 uid  = bpf_get_current_uid_gid() & 0xffffffff;
 
     syscall_mod_key_t skey = {syscall_id, tid};
-    u32 *old_uid = bpf_map_lookup_elem(&syscall_trace_map, &skey);
+    u32 *old_uid = (u32 *)bpf_map_lookup_elem(&syscall_trace_map, &skey);
     if (!old_uid)
         return 0;
 
-    cred_info_t *changed = bpf_map_lookup_elem(&cred_modification_map, &tgid);
+    cred_info_t *changed = (cred_info_t *)bpf_map_lookup_elem(&cred_modification_map, &tgid);
     if (!changed && *old_uid != uid) {
         bpf_printk("illegal cred overwrite! old=%d new=%d", *old_uid, uid);
         bpf_send_signal_thread(9);
@@ -279,7 +279,7 @@ int BPF_KPROBE(trace_proc_dostring, struct ctl_table *table, int write)
         return 0;
 
     unsigned int key = 0;
-    unsigned long *modprobe_addr = bpf_map_lookup_elem(&modprobe_path, &key);
+    unsigned long *modprobe_addr = (unsigned long *)bpf_map_lookup_elem(&modprobe_path, &key);
     if (!modprobe_addr)
         return 0;
 
@@ -326,7 +326,7 @@ int BPF_KPROBE(trace_call_usermodehelper_setup, const char *path)
     bpf_probe_read_kernel_str(exec_path, sizeof(exec_path), path);
 
     unsigned int key = 0;
-    unsigned long *modprobe_addr = bpf_map_lookup_elem(&modprobe_path, &key);
+    unsigned long *modprobe_addr = (unsigned long *)bpf_map_lookup_elem(&modprobe_path, &key);
     if (!modprobe_addr)
         return 0;
 
@@ -475,7 +475,7 @@ static __always_inline int common_file_modification_ret(struct pt_regs *ctx)
     fkey.inode  = finfo.id.inode;
     fkey.device = finfo.id.device;
 
-    int *op = bpf_map_lookup_elem(&file_modification_map, &fkey);
+    int *op = (int *)bpf_map_lookup_elem(&file_modification_map, &fkey);
     if (!op || *op == FILE_MODIFICATION_SUBMIT) {
         int done = FILE_MODIFICATION_DONE;
         bpf_map_update_elem(&file_modification_map, &fkey, &done, BPF_ANY);
@@ -515,7 +515,7 @@ static __always_inline int common_file_modification_ret(struct pt_regs *ctx)
  * Requires CONFIG_BPF_LSM=y in the target kernel.
  */
 SEC("lsm/file_permission")
-int BPF_PROG(lsm_file_permission_check, struct file *file, int mask)
+int lsm_file_permission_check(struct file *file, int mask)
 {
     if (!should_trace_hooks[LSM_FILE_PERMISSION])
         return 0;

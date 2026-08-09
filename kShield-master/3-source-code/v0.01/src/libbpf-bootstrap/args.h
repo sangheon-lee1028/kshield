@@ -30,7 +30,7 @@ statfunc int load_args(args_t *args, u32 event_id)
     u64 id = event_id;
     id = id << 32 | tid;
 
-    saved_args = bpf_map_lookup_elem(&args_map, &id);
+    saved_args = (args_t *)bpf_map_lookup_elem(&args_map, &id);
     if (saved_args == 0) {
         // missed entry or not a container
         return -1;
