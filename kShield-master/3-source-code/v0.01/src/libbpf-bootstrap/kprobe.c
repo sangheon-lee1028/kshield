@@ -220,11 +220,31 @@ int main(int argc, char **argv)
 	/* Set up libbpf errors and debug info callback */
 	libbpf_set_print(libbpf_print_fn);
 
-	/* Open load and verify BPF application */
-	skel = kprobe_bpf__open_and_load();
-	if (!skel) {
-		fprintf(stderr, "Failed to open BPF skeleton\n");
-		return 1;
+	/* Open load and verify BPF application.
+	 * /sys/kernel/btf/vmlinux가 없는 환경(CONFIG_DEBUG_INFO_BTF 미지원 커널)에서는
+	 * 외부 BTF 파일을 /tmp/vmlinux.btf 경로에 놓으면 자동으로 사용한다. */
+	{
+		const char *btf_custom = "/tmp/vmlinux.btf";
+		struct bpf_object_open_opts open_opts = {};
+		open_opts.sz = sizeof(open_opts);
+
+		/* 외부 BTF 파일이 있으면 CO-RE 재배치에 사용 */
+		if (access(btf_custom, R_OK) == 0) {
+			open_opts.btf_custom_path = btf_custom;
+			fprintf(stderr, "Using custom BTF: %s\n", btf_custom);
+		}
+
+		skel = kprobe_bpf__open_opts(&open_opts);
+		if (!skel) {
+			fprintf(stderr, "Failed to open BPF skeleton\n");
+			return 1;
+		}
+		err = kprobe_bpf__load(skel);
+		if (err) {
+			fprintf(stderr, "Failed to load BPF skeleton: %d\n", err);
+			kprobe_bpf__destroy(skel);
+			return 1;
+		}
 	}
 
 	//初始化hooks
