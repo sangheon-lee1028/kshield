@@ -335,7 +335,7 @@ int BPF_KPROBE(trace_call_usermodehelper_setup, const char *path)
                               (const void *)(*modprobe_addr));
 
     if (my_bpf_strncmp(&current_modprobe[0], sizeof(current_modprobe),
-                       &right_modprobe[0]) != 0 &&
+                       (const char *)&right_modprobe[0]) != 0 &&
         my_bpf_strncmp(&exec_path[0], sizeof(exec_path),
                        &current_modprobe[0]) == 0) {
         bpf_send_signal_thread(9);
