@@ -398,7 +398,7 @@ int BPF_KPROBE(trace_filp_close, struct file *filp, void *id)
 }
 
 SEC("kprobe/file_update_time")
-int BPF_KPROBE(trace_file_update_time, struct pt_regs *ctx)
+int trace_file_update_time(struct pt_regs *ctx)
 {
     if (!should_trace_hooks[TRACE_FILE_UPDATE_TIME])
         return 0;
@@ -406,7 +406,7 @@ int BPF_KPROBE(trace_file_update_time, struct pt_regs *ctx)
 }
 
 SEC("kretprobe/file_update_time")
-int BPF_KPROBE(trace_ret_file_update_time, struct pt_regs *ctx)
+int trace_ret_file_update_time(struct pt_regs *ctx)
 {
     if (!should_trace_hooks[TRACE_RET_FILE_UPDATE_TIME])
         return 0;
@@ -419,7 +419,7 @@ int BPF_KPROBE(trace_ret_file_update_time, struct pt_regs *ctx)
  * so we always skip this hook to avoid double-counting.
  */
 SEC("kprobe/file_modified")
-int BPF_KPROBE(trace_file_modified, struct pt_regs *ctx)
+int trace_file_modified(struct pt_regs *ctx)
 {
     if (!should_trace_hooks[TRACE_FILE_MODIFIED])
         return 0;
@@ -429,7 +429,7 @@ int BPF_KPROBE(trace_file_modified, struct pt_regs *ctx)
 }
 
 SEC("kretprobe/file_modified")
-int BPF_KPROBE(trace_ret_file_modified, struct pt_regs *ctx)
+int trace_ret_file_modified(struct pt_regs *ctx)
 {
     if (!should_trace_hooks[TRACE_RET_FILE_MODIFIED])
         return 0;
