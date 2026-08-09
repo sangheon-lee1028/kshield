@@ -211,6 +211,15 @@ struct cred {
     kuid_t uid;
 };
 
+/* ── struct pt_regs (x86_64, Linux 5.13) — for PT_REGS_PARM1 / PT_REGS_RC ── */
+struct pt_regs {
+    unsigned long r15, r14, r13, r12, rbp, rbx;
+    unsigned long r11, r10, r9,  r8;
+    unsigned long ax,  cx,  dx,  si,  di;
+    unsigned long orig_ax, ip;
+    unsigned long cs, flags, sp, ss;
+};
+
 /* ── sched_process_exec tracepoint (fields we actually use: none) ── */
 struct trace_event_raw_sched_process_exec {
     u64  _common[2]; /* skip common header */
