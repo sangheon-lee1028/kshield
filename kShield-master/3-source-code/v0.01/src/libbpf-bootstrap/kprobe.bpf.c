@@ -202,7 +202,7 @@ int BPF_KPROBE(trace_evil_open, unsigned int fd, struct file *file)
 
     for (int i = 0; i < MAX_SECURITY_FILE_ID; i++) {
         if (!my_bpf_strncmp(&path.name[0], sizeof(path.name),
-                            &security_files[i])) {
+                            (const char *)security_files[i])) {
             /* [P3] atomic increment */
             __sync_fetch_and_add(&open_cnt, 1);
             bpf_printk("evil_open cnt=%d", open_cnt);
@@ -242,7 +242,7 @@ int BPF_KPROBE(trace_do_linkat, int olddfd, struct filename *old,
     bpf_probe_read_kernel_str(&fname[0], sizeof(fname), name_p);
 
     for (int i = 0; i < MAX_SECURITY_FILE_ID; i++) {
-        if (my_bpf_strncmp(&fname[0], sizeof(fname), &security_files[i])) {
+        if (my_bpf_strncmp(&fname[0], sizeof(fname), (const char *)security_files[i])) {
             bpf_printk("hard link on security file blocked");
             bpf_send_signal_thread(9);
             break;
@@ -494,7 +494,7 @@ static __always_inline int common_file_modification_ret(struct pt_regs *ctx)
     int i;
     for (i = 0; i < MAX_SECURITY_FILE_ID; i++) {
         if (!my_bpf_strncmp(&path.name[0], sizeof(path.name),
-                            &security_files[i])) {
+                            (const char *)security_files[i])) {
             info.security_file = i;
             break;
         }
@@ -537,9 +537,9 @@ int BPF_PROG(lsm_file_permission_check, struct file *file, int mask)
 
     for (int i = 0; i < MAX_SECURITY_FILE_ID; i++) {
         if (!my_bpf_strncmp(&path.name[0], sizeof(path.name),
-                            &security_files[i])) {
+                            (const char *)security_files[i])) {
             bpf_printk("lsm_file_permission: blocked non-root write to %s uid=%d",
-                       &security_files[i], uid);
+                       (const char *)security_files[i], uid);
             return -EPERM;
         }
     }
