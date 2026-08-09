@@ -211,13 +211,19 @@ struct cred {
     kuid_t uid;
 };
 
-/* ── struct pt_regs (x86_64, Linux 5.13) — for PT_REGS_PARM1 / PT_REGS_RC ── */
+/* ── struct pt_regs (x86_64, Linux 5.13) — for PT_REGS_PARM1 / PT_REGS_RC ──
+ * Member names use the r-prefixed style expected by older libbpf bpf_tracing.h:
+ *   PT_REGS_PARM1 → rdi   PT_REGS_PARM2 → rsi   PT_REGS_PARM3 → rdx
+ *   PT_REGS_PARM4 → rcx   PT_REGS_PARM5 → r8    PT_REGS_RC    → rax
+ *   PT_REGS_IP    → rip   PT_REGS_SP/RET → rsp   PT_REGS_FP   → rbp
+ * BPF_KPROBE extracts all parms even for 0-arg kprobes, so all must be present.
+ */
 struct pt_regs {
     unsigned long r15, r14, r13, r12, rbp, rbx;
     unsigned long r11, r10, r9,  r8;
-    unsigned long ax,  cx,  dx,  si,  di;
-    unsigned long orig_ax, ip;
-    unsigned long cs, flags, sp, ss;
+    unsigned long rax, rcx, rdx, rsi, rdi;
+    unsigned long orig_rax, rip;
+    unsigned long cs, eflags, rsp, ss;
 };
 
 /* ── sched_process_exec tracepoint (fields we actually use: none) ── */

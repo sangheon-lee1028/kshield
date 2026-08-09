@@ -139,7 +139,7 @@ int raw_tracepoint__sys_exit(struct bpf_raw_tracepoint_args *ctx)
     struct pt_regs *regs = (struct pt_regs *)ctx->args[0];
     u32 syscall_id = 0;
     bpf_probe_read_kernel(&syscall_id, sizeof(syscall_id),
-                          &regs->orig_ax);       /* x86_64 orig_ax */
+                          &regs->orig_rax);      /* x86_64 orig_rax */
 
     /* [P4] TID for syscall_trace_map, TGID for cred_modification_map */
     u64 pid_tgid = bpf_get_current_pid_tgid();
