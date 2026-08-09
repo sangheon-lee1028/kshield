@@ -73,7 +73,7 @@ static __always_inline int common_file_modification_ret(struct pt_regs *ctx);
  * ════════════════════════════════════════════════════════ */
 
 SEC("kprobe/commit_creds")
-int BPF_KPROBE(trace_commit_creds, struct cred *new)
+int trace_commit_creds(struct pt_regs *ctx)
 {
     if (!should_trace_hooks[TRACE_COMMIT_CREDS])
         return 0;
@@ -90,7 +90,7 @@ int BPF_KPROBE(trace_commit_creds, struct cred *new)
 }
 
 SEC("kretprobe/commit_creds")
-int BPF_KPROBE(trace_ret_commit_creds, struct cred *new)
+int trace_ret_commit_creds(struct pt_regs *ctx)
 {
     if (!should_trace_hooks[TRACE_RET_COMMIT_CREDS])
         return 0;
@@ -181,8 +181,9 @@ submit:
  * ════════════════════════════════════════════════════════ */
 
 SEC("kprobe/fd_install")
-int BPF_KPROBE(trace_evil_open, unsigned int fd, struct file *file)
+int trace_evil_open(struct pt_regs *ctx)
 {
+    struct file *file = (struct file *)PT_REGS_PARM2(ctx);
     if (!should_trace_hooks[TRACE_EVIL_OPEN])
         return 0;
 
@@ -228,14 +229,14 @@ submit:
 }
 
 SEC("kprobe/do_linkat")
-int BPF_KPROBE(trace_do_linkat, int olddfd, struct filename *old,
-               int newdfd, struct filename *new, int flags)
+int trace_do_linkat(struct pt_regs *ctx)
 {
+    struct filename *old = (struct filename *)PT_REGS_PARM2(ctx);
     if (!should_trace_hooks[TRACE_DO_LINKAT])
         return 0;
 
     /* Read filename->name (offset 0) */
-    const char *name_p = NULL;
+    const char *name_p = (const char *)0;
     bpf_probe_read_kernel(&name_p, sizeof(name_p), &old->name);
 
     char fname[MAX_CACHED_PATH_SIZE];
@@ -271,8 +272,10 @@ int tp_trace_exec(struct trace_event_raw_sched_process_exec *ctx)
 
 /* LAYER 1 — sysctl write-time block */
 SEC("kprobe/proc_dostring")
-int BPF_KPROBE(trace_proc_dostring, struct ctl_table *table, int write)
+int trace_proc_dostring(struct pt_regs *ctx)
 {
+    struct ctl_table *table = (struct ctl_table *)PT_REGS_PARM1(ctx);
+    int write = (int)PT_REGS_PARM2(ctx);
     if (!should_trace_hooks[TRACE_PROC_DOSTRING])
         return 0;
     if (!write)
@@ -314,8 +317,9 @@ int BPF_KPROBE(trace_proc_dostring, struct ctl_table *table, int write)
 
 /* LAYER 2 — use-time block (closes TOCTOU gap) */
 SEC("kprobe/call_usermodehelper_setup")
-int BPF_KPROBE(trace_call_usermodehelper_setup, const char *path)
+int trace_call_usermodehelper_setup(struct pt_regs *ctx)
 {
+    const char *path = (const char *)PT_REGS_PARM1(ctx);
     if (!should_trace_hooks[TRACE_CALL_UMH_SETUP])
         return 0;
 
@@ -365,8 +369,9 @@ int BPF_KPROBE(trace_call_usermodehelper_setup, const char *path)
  * ════════════════════════════════════════════════════════ */
 
 SEC("kprobe/fd_install")
-int BPF_KPROBE(trace_fd_install, unsigned int fd, struct file *file)
+int trace_fd_install(struct pt_regs *ctx)
 {
+    struct file *file = (struct file *)PT_REGS_PARM2(ctx);
     if (!should_trace_hooks[TRACE_FD_INSTALL])
         return 0;
 
@@ -384,8 +389,9 @@ int BPF_KPROBE(trace_fd_install, unsigned int fd, struct file *file)
 }
 
 SEC("kprobe/filp_close")
-int BPF_KPROBE(trace_filp_close, struct file *filp, void *id)
+int trace_filp_close(struct pt_regs *ctx)
 {
+    struct file *filp = (struct file *)PT_REGS_PARM1(ctx);
     if (!should_trace_hooks[TRACE_FLIP_CLOSE])
         return 0;
 

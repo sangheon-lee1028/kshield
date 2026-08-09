@@ -13,10 +13,7 @@
  * All struct field reads use bpf_probe_read_kernel.
  * ───────────────────────────────────────────── */
 
-statfunc buf_t *get_buf(int idx)
-{
-    return bpf_map_lookup_elem(&bufs, &idx);
-}
+/* get_buf is provided by buffer.h (included above) with the correct cast */
 
 /* inode->i_mode : always at offset 0 */
 statfunc unsigned short get_inode_mode_from_file(struct file *file)
@@ -221,7 +218,7 @@ statfunc file_info_t get_file_info(struct file *file)
     /* Read f_path (mnt+dentry) via probe_read then call get_path_str */
     struct path p = {};
     bpf_probe_read_kernel(&p, sizeof(p), &file->f_path);
-    info.pathname_p = get_path_str(&p);
+    info.pathname_p = (char *)get_path_str(&p);
     return info;
 }
 

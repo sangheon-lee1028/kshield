@@ -13,6 +13,14 @@
  * Override at compile time: clang ... -DKSHIELD_INODE_LAYOUT=1
  */
 
+/* ── NULL pointer constant ──
+ * Bare 0 is a null pointer constant in both C and C++.
+ * Prevents system headers from redefining NULL as (void*)0, which is
+ * a typed pointer in C++ and cannot implicitly convert to T* for T≠void. */
+#ifndef NULL
+#define NULL 0
+#endif
+
 /* ── Basic integer types ── */
 typedef unsigned char      u8;
 typedef unsigned short     u16;
@@ -240,9 +248,82 @@ struct trace_event_raw_sched_process_exec {
 #define S_IFDIR  0040000
 
 /* ── BPF subsystem headers ──
- * Provides BPF_ANY, BPF_F_CURRENT_CPU, bpf_get_current_uid_gid, SEC, etc.
- * Included here so every header that includes kernel_defs.h gets them. */
+ *
+ * Poison-pill bpf_helpers.h and bpf_helper_defs.h: both assign (void*)N to
+ * function pointer types, which is a GCC/Clang C extension but illegal in
+ * C++.  We claim their include guards first, then provide equivalent
+ * declarations using (rettype(*)(params))((unsigned long)N) — a C-style cast
+ * from integer to function pointer that is valid in both C (as a GCC/Clang
+ * extension) and C++ (treated as reinterpret_cast).
+ */
+#ifndef __BPF_HELPERS__
+#define __BPF_HELPERS__
+#endif
+#ifndef __BPF_HELPER_DEFS__
+#define __BPF_HELPER_DEFS__
+#endif
+
+/* Linux UAPI constants: BPF_MAP_TYPE_*, BPF_ANY, BPF_F_CURRENT_CPU,
+ * struct bpf_raw_tracepoint_args, etc. */
 #include <linux/bpf.h>
-#include <bpf/bpf_helpers.h>
+
+/* Map-definition helpers (normally from bpf_helpers.h) */
+#ifndef SEC
+#define SEC(name) __attribute__((section(name), used))
+#endif
+#ifndef __uint
+#define __uint(name, val) int (*name)[val]
+#endif
+#ifndef __type
+#  ifdef __cplusplus
+#    define __type(name, val) __typeof__(val) *name
+#  else
+#    define __type(name, val) typeof(val) *name
+#  endif
+#endif
+
+/* bpf_printk wraps bpf_trace_printk (helper #6) */
+#ifndef bpf_printk
+#define bpf_printk(fmt, ...)                    \
+({                                              \
+    static const char ____fmt[] = fmt;          \
+    bpf_trace_printk(____fmt, sizeof(____fmt),  \
+                     ##__VA_ARGS__);            \
+})
+#endif
+
+/* ── BPF helper function pointer declarations (C++ safe) ──
+ *
+ * IDs match Linux 5.13 include/uapi/linux/bpf.h FN() macro ordering.
+ * The __BPF_HELPER macro uses (ret(*)(params))((unsigned long)N):
+ *   • In C:   GCC/Clang accept integer→function-pointer cast as extension.
+ *   • In C++: C-style cast of integer→pointer = reinterpret_cast, which
+ *             is explicitly allowed for pointer types (incl. function ptrs).
+ */
+#define __BPF_HELPER(ret, name, id, ...) \
+    static ret (*name)(__VA_ARGS__) = (ret (*)(__VA_ARGS__))((unsigned long)(id))
+
+__BPF_HELPER(void *,             bpf_map_lookup_elem,        1,  void *map, const void *key);
+__BPF_HELPER(long,               bpf_map_update_elem,        2,  void *map, const void *key, const void *value, unsigned long long flags);
+__BPF_HELPER(long,               bpf_map_delete_elem,        3,  void *map, const void *key);
+__BPF_HELPER(long,               bpf_probe_read,             4,  void *dst, unsigned int size, const void *unsafe_ptr);
+__BPF_HELPER(unsigned long long, bpf_ktime_get_ns,           5);
+__BPF_HELPER(long,               bpf_trace_printk,           6,  const char *fmt, unsigned int fmt_size, ...);
+__BPF_HELPER(unsigned long long, bpf_get_current_pid_tgid,  14);
+__BPF_HELPER(unsigned long long, bpf_get_current_uid_gid,   15);
+__BPF_HELPER(long,               bpf_get_current_comm,       16, void *buf, unsigned int size_of_buf);
+__BPF_HELPER(long,               bpf_perf_event_output,      25, void *ctx, void *map, unsigned long long flags, void *data, unsigned long long size);
+__BPF_HELPER(unsigned long long, bpf_get_current_task,       35);
+__BPF_HELPER(long,               bpf_probe_read_str,         45, void *dst, unsigned int size, const void *unsafe_ptr);
+__BPF_HELPER(long,               bpf_send_signal,           109, unsigned int sig);
+__BPF_HELPER(long,               bpf_probe_read_kernel,     113, void *dst, unsigned int size, const void *unsafe_ptr);
+__BPF_HELPER(long,               bpf_probe_read_kernel_str, 115, void *dst, unsigned int size, const void *unsafe_ptr);
+__BPF_HELPER(long,               bpf_send_signal_thread,    117, unsigned int sig);
+
+/* uint8_t used in maps.h callsite_bitmap value type */
+typedef unsigned char uint8_t;
+
+/* Forward declaration — pointer used by task.h helpers */
+struct task_struct;
 
 #endif /* KERNEL_DEFS_H */
