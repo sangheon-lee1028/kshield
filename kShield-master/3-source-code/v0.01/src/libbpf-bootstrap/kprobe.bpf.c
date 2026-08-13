@@ -501,7 +501,7 @@ static __always_inline int common_file_modification_ret(struct pt_regs *ctx)
     for (i = 0; i < MAX_SECURITY_FILE_ID; i++) {
         if (!my_bpf_strncmp(&path.name[0], sizeof(path.name),
                             (const char *)security_files[i])) {
-            info.security_file = (security_file_id)i;
+            info.security_file = i;
             break;
         }
     }
