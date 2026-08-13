@@ -196,7 +196,8 @@ int trace_evil_open(struct pt_regs *ctx)
     if (init_context(&info.context))
         return 0;
 
-    file_info_t finfo = get_file_info(file);
+    file_info_t finfo = {};
+    get_file_info(file, &finfo);
     file_pathname_t path = {};
     bpf_probe_read_kernel_str(&path.name[0], sizeof(path.name),
                               finfo.pathname_p);
@@ -379,7 +380,8 @@ int trace_fd_install(struct pt_regs *ctx)
     if ((mode & S_IFMT) != S_IFREG)
         return 0;
 
-    file_info_t finfo = get_file_info(file);
+    file_info_t finfo = {};
+    get_file_info(file, &finfo);
     file_mod_key_t fkey = {};
     fkey.inode  = finfo.id.inode;
     fkey.device = finfo.id.device;
@@ -395,7 +397,8 @@ int trace_filp_close(struct pt_regs *ctx)
     if (!should_trace_hooks[TRACE_FLIP_CLOSE])
         return 0;
 
-    file_info_t finfo = get_file_info(filp);
+    file_info_t finfo = {};
+    get_file_info(filp, &finfo);
     file_mod_key_t fkey = {};
     fkey.inode  = finfo.id.inode;
     fkey.device = finfo.id.device;
@@ -476,7 +479,8 @@ static __always_inline int common_file_modification_ret(struct pt_regs *ctx)
     struct file *file    = (struct file *)saved_args.args[0];
     u64          old_ctime = saved_args.args[1];
 
-    file_info_t finfo = get_file_info(file);
+    file_info_t finfo = {};
+    get_file_info(file, &finfo);
     file_mod_key_t fkey = {};
     fkey.inode  = finfo.id.inode;
     fkey.device = finfo.id.device;
@@ -536,7 +540,8 @@ int lsm_file_permission_check(struct file *file, int mask)
     if (uid == 0)
         return 0;
 
-    file_info_t finfo = get_file_info(file);
+    file_info_t finfo = {};
+    get_file_info(file, &finfo);
     file_pathname_t path = {};
     bpf_probe_read_kernel_str(&path.name[0], sizeof(path.name),
                               finfo.pathname_p);

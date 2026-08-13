@@ -209,17 +209,15 @@ statfunc void *get_path_str(struct path *path)
     return &string_p->buf[buf_off];
 }
 
-statfunc file_info_t get_file_info(struct file *file)
+statfunc void get_file_info(struct file *file, file_info_t *info)
 {
-    file_info_t info = {};
     if (!file)
-        return info;
-    info.id = get_file_id(file);
+        return;
+    info->id = get_file_id(file);
     /* Read f_path (mnt+dentry) via probe_read then call get_path_str */
     struct path p = {};
     bpf_probe_read_kernel(&p, sizeof(p), &file->f_path);
-    info.pathname_p = (char *)get_path_str(&p);
-    return info;
+    info->pathname_p = (char *)get_path_str(&p);
 }
 
 #endif /* FILESYSTEM_H */
