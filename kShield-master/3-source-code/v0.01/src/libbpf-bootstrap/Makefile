@@ -19,7 +19,7 @@ ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' \
 VMLINUX := ../third_party/vmlinux/$(ARCH)/vmlinux.h
 # BPF_INCLUDES: used only for the clang -target bpf compilation step.
 # Must NOT contain C++ header paths so that BPF code stays in pure C mode.
-BPF_INCLUDES := -I$(OUTPUT) -I../third_party/libbpf/include/uapi -I$(dir $(VMLINUX))
+BPF_INCLUDES := -I$(OUTPUT) -I../third_party/libbpf/include/uapi
 # INCLUDES: used for user-space C++ compilation (adds the C++ header path).
 INCLUDES := $(BPF_INCLUDES) -I/usr/include/c++
 CFLAGS := -g -Wall -std=c++11
@@ -107,7 +107,7 @@ $(LIBBLAZESYM_HEADER): $(LIBBLAZESYM_SRC)/target/release/libblazesym.a | $(OUTPU
 	$(Q)cp $(LIBBLAZESYM_SRC)/target/release/blazesym.h $@
 
 # Build BPF code
-$(OUTPUT)/%.bpf.o: %.bpf.c $(LIBBPF_OBJ) $(wildcard *.h) $(VMLINUX) | $(OUTPUT) $(BPFTOOL)
+$(OUTPUT)/%.bpf.o: %.bpf.c $(LIBBPF_OBJ) $(wildcard *.h) | $(OUTPUT) $(BPFTOOL)
 	$(call msg,BPF,$@)
 	$(Q)$(CLANG) -g -O2 -x c -target bpf -D__TARGET_ARCH_$(ARCH)	      \
 		     $(BPF_INCLUDES) $(CLANG_BPF_SYS_INCLUDES)		      \
