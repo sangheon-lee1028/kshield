@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2021 Sartura
- * Based on minimal.c by Facebook */
+ * Based on minimal.c by Facebook */
 #include <argp.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -37,277 +37,273 @@ const char argp_program_doc[] =
 "USAGE: ./kprobe [-e <event-num> -e <event-num>...] \n";
 
 static const struct argp_option opts[] = {
-    { "event", 'e', "NUM", 0, "specify enabled events" },
-    { "all", 'a', NULL, 0, "trace all 5 events" },
-    {},
+    { "event", 'e', "NUM", 0, "specify enabled events" },
+    { "all", 'a', NULL, 0, "trace all 5 events" },
+    {},
 };
 
 static error_t parse_arg(int key, char *arg, struct argp_state *state)
 {
-    switch (key) {
-    case 'e':
-    {
-        int event_num = atoi(arg);
-        printf("%d\n",event_num);
-        //检查传入的event_num是否合法
-        if(event_num >= MAX_EVENT_NUM || event_num < 0)
-        {
-            fprintf(stderr, "Invalid event_num: %s\n", arg);
-            argp_usage(state);
-        }
-        else //被使能的event
-        {
-            env.event[event_num] = true;
-        }
-        
-        break;
-    }
-    case 'a':
-        env.trace_all = 1;
-        break;
-    case ARGP_KEY_ARG:
-        argp_usage(state);
-        break;
-    default:
-        return ARGP_ERR_UNKNOWN;
-    }
+    switch (key) {
+    case 'e':
+    {
+        int event_num = atoi(arg);
+        printf("%d\n",event_num);
+        //检查传入的event_num是否合法
+        if(event_num >= MAX_EVENT_NUM || event_num < 0)
+        {
+            fprintf(stderr, "Invalid event_num: %s\n", arg);
+            argp_usage(state);
+        }
+        else //被使能的event
+        {
+            env.event[event_num] = true;
+        }
+        
+        break;
+    }
+    case 'a':
+        env.trace_all = 1;
+        break;
+    case ARGP_KEY_ARG:
+        argp_usage(state);
+        break;
+    default:
+        return ARGP_ERR_UNKNOWN;
+    }
 
-    return 0;
+    return 0;
 }
 
 static const struct argp argp = {
-    .options = opts,
-    .parser = parse_arg,
-    .doc = argp_program_doc,
+    .options = opts,
+    .parser = parse_arg,
+    .doc = argp_program_doc,
 };
 
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
-    return vfprintf(stderr, format, args);
+    return vfprintf(stderr, format, args);
 }
 
 static void sig_init(int signo)
 {
-    exiting = 1;
+    exiting = 1;
 }
 
 /* callback function, used for processing perf data */
 void handle_event(void* ctx, int cpu, void* data, __u32 data_sz) 
 {
-    program_info_t info;
+    program_info_t info;
 
-    /* Copy data as alignment in the perf buffer isn't guaranteed. */
-    memcpy(&info, data, sizeof(info));
-    
-    // 时间戳
-    struct tm *tm;
-    char ts[32];
-    time_t t;
-    time(&t);
-    tm = localtime(&t);
-    strftime(ts, sizeof(ts), "%H:%M:%S", tm);
+    /* Copy data as alignment in the perf buffer isn't guaranteed. */
+    memcpy(&info, data, sizeof(info));
+    
+    // 时间戳
+    struct tm *tm;
+    char ts[32];
+    time_t t;
+    time(&t);
+    tm = localtime(&t);
+    strftime(ts, sizeof(ts), "%H:%M:%S", tm);
 
-    // 根据eventid处理数据
-    switch (info.context.eventid)
-    {
-    case FILE_MODIFICATION:
-    {
-        char fname[MAX_CACHED_PATH_SIZE]; 
-        int i;
-        for(i = 0; i < MAX_SECURITY_FILE_ID; i++)
-        {
-            if(info.security_file == ETC_PASSWD)
-            {
-                strncpy(&fname[0], skel->rodata->security_files[i], MAX_CACHED_PATH_SIZE);
-                break;
-            }
-        }
-        if(i == MAX_SECURITY_FILE_ID)
-            return;
+    // 根据eventid处理数据
+    switch (info.context.eventid)
+    {
+    case FILE_MODIFICATION:
+    {
+        char fname[MAX_CACHED_PATH_SIZE]; 
+        int i;
+        for(i = 0; i < MAX_SECURITY_FILE_ID; i++)
+        {
+            if(info.security_file == ETC_PASSWD)
+            {
+                strncpy(&fname[0], skel->rodata->security_files[i], MAX_CACHED_PATH_SIZE);
+                break;
+            }
+        }
+        if(i == MAX_SECURITY_FILE_ID)
+            return;
 
-        if(info.context.uid == 0) /* root 수정 — 정상 관리 작업, 로그만 기록 */
-            printf("%-16s %-16s %-16d %-20s uid=%d %-16s\n", \
-                ts, info.context.comm, info.context.pid, "FILE_MODIFICATION", info.context.uid, &fname[0]);
-        else
-        {
-            /*
-             * [정상 경로] lsm/file_permission 훅이 활성화된 환경에서는
-             * 비root 쓰기가 VFS 계층에서 -EPERM으로 차단되므로 이 분기에
-             * 도달하지 않는다.
-             *
-             * [폴백 경로] CONFIG_BPF_LSM 미지원 커널에서는 파일이 이미
-             * 변조된 뒤에 이 핸들러가 호출된다. 이 경우 백업으로 복원하고
-             * 악성 프로세스를 강제 종료한다.
-             */
-            printf("%-16s %-16s %-16d %-20s uid=%d %-16s ILLEGAL (LSM fallback)!!!\n", \
-                ts, info.context.comm, info.context.pid, "FILE_MODIFICATION", info.context.uid, &fname[0]);
+        if(info.context.uid == 0) /* root 수정 — 정상 관리 작업, 로그만 기록 */
+            printf("%-16s %-16s %-16d %-20s uid=%d %-16s\n", \
+                ts, info.context.comm, info.context.pid, "FILE_MODIFICATION", info.context.uid, &fname[0]);
+        else
+        {
+            /*
+             * [정상 경로] lsm/file_permission 훅이 활성화된 환경에서는
+             * 비root 쓰기가 VFS 계층에서 -EPERM으로 차단되므로 이 분기에
+             * 도달하지 않는다.
+             *
+             * [폴백 경로] CONFIG_BPF_LSM 미지원 커널에서는 파일이 이미
+             * 변조된 뒤에 이 핸들러가 호출된다. 이 경우 백업으로 복원하고
+             * 악성 프로세스를 강제 종료한다.
+             */
+            printf("%-16s %-16s %-16d %-20s uid=%d %-16s ILLEGAL (LSM fallback)!!!\n", \
+                ts, info.context.comm, info.context.pid, "FILE_MODIFICATION", info.context.uid, &fname[0]);
 
-            restore_backup(skel->rodata->security_files[i]);
+            restore_backup(skel->rodata->security_files[i]);
 
-            if (kill(info.context.pid, 9) == -1)
-                perror("kill evil process failed");
-        }
+            if (kill(info.context.pid, 9) == -1)
+                perror("kill evil process failed");
+        }
 
-        break;
-    }
-    case EVIL_OPEN:
-        printf("%-16s %-16s %-16d %-20s KILLED!!!\n", \
-            ts, &info.context.comm[0], info.context.pid, "EVIL_OPEN");
-        break;
-    case TASK_CRED_OVERWRITTEN: 
-        printf("%-16s %-16s %-16d %-20s KILLED!!!\n", \
-            ts, &info.context.comm[0],  info.context.pid, "TASK_CRED_OVERWRITTEN");
-        break;
-    case MODPROBE_PATH_OVERWRITTEN: 
-    {
-        printf("%-16s %-16s %-16d %-20s KILLED!!!\n", \
-            ts, &info.context.comm[0],  info.context.pid, "MODPROBE_PATH_OVERWRITTEN");
-        
-        //回滚modprobe_path
-        if(!modprobe_roll_back(skel))
-        {
-            /* [P5] 맵 기반 상태 플래그 초기화 — BSS 직접 접근 제거 */
-            u32 key = 0, clear_val = 0;
-            bpf_map__update_elem(skel->maps.modprobe_state_map,
-                                 &key, sizeof(key),
-                                 &clear_val, sizeof(clear_val), BPF_ANY);
-            printf("modprobe_state cleared via map\n");
-        }
-        
-        //杀死恶意进程
-        if (kill(info.context.pid, 9) == -1) 
-        {
-            perror("send kill failed");
-            return;
-        }
-        printf("evil process %s pid = %d killed!!!\n", &info.context.comm[0], info.context.pid);
+        break;
+    }
+    case EVIL_OPEN:
+        printf("%-16s %-16s %-16d %-20s KILLED!!!\n", \
+            ts, &info.context.comm[0], info.context.pid, "EVIL_OPEN");
+        break;
+    case TASK_CRED_OVERWRITTEN: 
+        printf("%-16s %-16s %-16d %-20s KILLED!!!\n", \
+            ts, &info.context.comm[0],  info.context.pid, "TASK_CRED_OVERWRITTEN");
+        break;
+    case MODPROBE_PATH_OVERWRITTEN: 
+    {
+        printf("%-16s %-16s %-16d %-20s KILLED!!!\n", \
+            ts, &info.context.comm[0],  info.context.pid, "MODPROBE_PATH_OVERWRITTEN");
+        
+        //回滚modprobe_path
+        if(!modprobe_roll_back(skel))
+        {
+            /* [P5] 맵 기반 상태 플래그 초기화 — BSS 직접 접근 제거 */
+            u32 key = 0, clear_val = 0;
+            bpf_map__update_elem(skel->maps.modprobe_state_map,
+                                 &key, sizeof(key),
+                                 &clear_val, sizeof(clear_val), BPF_ANY);
+            printf("modprobe_state cleared via map\n");
+        }
+        
+        //杀死恶意进程
+        if (kill(info.context.pid, 9) == -1) 
+        {
+            perror("send kill failed");
+            return;
+        }
+        printf("evil process %s pid = %d killed!!!\n", &info.context.comm[0], info.context.pid);
 
-        break;
-    }
-    case CFI_VIOLATION:
-    {
-        printf("%-16s %-16s %-16d %-20s KILLED!!! \n", \
-            ts, &info.context.comm[0], info.context.pid, "CFI_VIOLATION");
-        //打印出堆栈信息
-        std::cout << "Hook function: " << bpf_ksyms_resolve(info.ip) << " (" << std::hex << info.ip << std::dec << ")" << std::endl;
-        std::cout << "Stack pointer: " << std::hex << info.reg_sp <<" - "<< info.current_sp << std::dec << std::endl;
-        break;
-    }
-    default:
-        break;
-    }
+        break;
+    }
+    case CFI_VIOLATION:
+    {
+        printf("%-16s %-16s %-16d %-20s KILLED!!! \n", \
+            ts, &info.context.comm[0], info.context.pid, "CFI_VIOLATION");
+        //打印出堆栈信息
+        std::cout << "Hook function: " << bpf_ksyms_resolve(info.ip) << " (" << std::hex << info.ip << std::dec << ")" << std::endl;
+        std::cout << "Stack pointer: " << std::hex << info.reg_sp <<" - "<< info.current_sp << std::dec << std::endl;
+        break;
+    }
+    default:
+        break;
+    }
 
-    return;
+    return;
 }
 
 void handle_lost_events(void* ctx, int cpu, __u64 lost_cnt) 
 {
-    fprintf(stderr, "lost %llu events on CPU #%d\n", lost_cnt, cpu);
+    fprintf(stderr, "lost %llu events on CPU #%d\n", lost_cnt, cpu);
 }
 
 int main(int argc, char **argv)
 {
-    struct perf_buffer *pb = NULL;
-    time_t start_time;
-    int err;
+    struct perf_buffer *pb = NULL;
+    time_t start_time;
+    int err;
 
-    /* Parse command line arguments */
-    err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
-    if (err)
-        return err;
+    /* Parse command line arguments */
+    err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
+    if (err)
+        return err;
 
-    /* Set up libbpf errors and debug info callback */
-    libbpf_set_print(libbpf_print_fn);
+    /* Set up libbpf errors and debug info callback */
+    libbpf_set_print(libbpf_print_fn);
 
-    /* Open load and verify BPF application.
-     * /sys/kernel/btf/vmlinux가 없는 환경(CONFIG_DEBUG_INFO_BTF 미지원 커널)에서는
-     * 외부 BTF 파일을 /tmp/vmlinux.btf 경로에 놓으면 자동으로 사용한다. */
-    {
-        const char *btf_custom = "/tmp/vmlinux.btf";
-        struct bpf_object_open_opts open_opts = {};
-        open_opts.sz = sizeof(open_opts);
+    /* Open load and verify BPF application.
+     * /sys/kernel/btf/vmlinux가 없는 환경(CONFIG_DEBUG_INFO_BTF 미지원 커널)에서는
+     * 외부 BTF 파일을 /tmp/vmlinux.btf 경로에 놓으면 자동으로 사용한다. */
+    {
+        const char *btf_custom = "/tmp/vmlinux.btf";
+        struct bpf_object_open_opts open_opts = {};
+        open_opts.sz = sizeof(open_opts);
 
-        /* 외부 BTF 파일이 있으면 CO-RE 재배치에 사용 */
-        if (access(btf_custom, R_OK) == 0) {
-            open_opts.btf_custom_path = btf_custom;
-            fprintf(stderr, "Using custom BTF: %s\n", btf_custom);
-        }
+        /* 외부 BTF 파일이 있으면 CO-RE 재배치에 사용 */
+        if (access(btf_custom, R_OK) == 0) {
+            open_opts.btf_custom_path = btf_custom;
+            fprintf(stderr, "Using custom BTF: %s\n", btf_custom);
+        }
 
-        skel = kprobe_bpf__open_opts(&open_opts);
-        if (!skel) {
-            fprintf(stderr, "Failed to open BPF skeleton\n");
-            return 1;
-        }
+        skel = kprobe_bpf__open_opts(&open_opts);
+        if (!skel) {
+            fprintf(stderr, "Failed to open BPF skeleton\n");
+            return 1;
+        }
+        err = kprobe_bpf__load(skel);
+        if (err) {
+            fprintf(stderr, "Failed to load BPF skeleton: %d\n", err);
+            kprobe_bpf__destroy(skel);
+            return 1;
+        }
+    }
 
-        /* [추가] 커널에 로드하기 직전, 아이노드 번호표를 BPF 맵(BSS)에 주입 */
-        security_inode_init(skel);
+    //初始化hooks
+    bpf_hooks_init(&env, skel);
 
-        err = kprobe_bpf__load(skel);
-        if (err) {
-            fprintf(stderr, "Failed to load BPF skeleton: %d\n", err);
-            kprobe_bpf__destroy(skel);
-            return 1;
-        }
-    }
+    //根据准备追踪的事件，做一些初始化
+    traced_event_init(&env, skel);
 
-    //初始化hooks
-    bpf_hooks_init(&env, skel);
+    /* Attach kprobe */
+    err = kprobe_bpf__attach(skel);
+    if (err) {
+        fprintf(stderr, "Failed to attach BPF skeleton\n");
+        goto cleanup;
+    }
 
-    //根据准备追踪的事件，做一些初始化
-    traced_event_init(&env, skel);
+    /* receive and process event */
+    pb = perf_buffer__new(bpf_map__fd(skel->maps.program_submit_map), PERF_BUFFER_PAGES, handle_event, handle_lost_events, NULL, NULL);
+    
+    if (libbpf_get_error(pb)) {
+        err = -1;
+        fprintf(stderr, "Failed to create perf buffer\n");
+        goto cleanup;
+    }
 
-    /* Attach kprobe */
-    err = kprobe_bpf__attach(skel);
-    if (err) {
-        fprintf(stderr, "Failed to attach BPF skeleton\n");
-        goto cleanup;
-    }
+    if (signal(SIGINT, sig_init) == SIG_ERR) {
+        fprintf(stderr, "can't set signal handler: %s\n", strerror(errno));
+        goto cleanup;
+    }
 
-    /* receive and process event */
-    pb = perf_buffer__new(bpf_map__fd(skel->maps.program_submit_map), PERF_BUFFER_PAGES, handle_event, handle_lost_events, NULL, NULL);
-    
-    if (libbpf_get_error(pb)) {
-        err = -1;
-        fprintf(stderr, "Failed to create perf buffer\n");
-        goto cleanup;
-    }
+    printf("Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` "
+           "to see output of the BPF programs.\n");
 
-    if (signal(SIGINT, sig_init) == SIG_ERR) {
-        fprintf(stderr, "can't set signal handler: %s\n", strerror(errno));
-        goto cleanup;
-    }
+    /* Process events */
+    printf("%-16s %-16s %-16s %-20s \n", "TIME", "COMM", "PID", "EVENT");
 
-    printf("Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` "
-           "to see output of the BPF programs.\n");
-
-    /* Process events */
-    printf("%-16s %-16s %-16s %-20s \n", "TIME", "COMM", "PID", "EVENT");
-
-    start_time = time(NULL);
-    /* main: poll */
-    while (!exiting) {
-        err = perf_buffer__poll(pb, PERF_POLL_TIMEOUT_MS);
-        if (err < 0 && err != -EINTR) {
-            fprintf(stderr, "error polling perf buffer: %s\n", strerror(-err));
-            goto cleanup;
-        }
-        /* reset err to return 0 if exiting */
-        err = 0;
-        // 处理时间,每过10s清空一次open_cnt.这样次数就变成了(平均)速率
-        time_t current_time = time(NULL);
-        if (current_time - start_time >= 100)
-        {
-            //reset open_cnt
-            skel->bss->open_cnt = 0;
-            // Reset the start time
-            start_time = current_time; 
-        }
-    }
-    
+    start_time = time(NULL);
+    /* main: poll */
+    while (!exiting) {
+        err = perf_buffer__poll(pb, PERF_POLL_TIMEOUT_MS);
+        if (err < 0 && err != -EINTR) {
+            fprintf(stderr, "error polling perf buffer: %s\n", strerror(-err));
+            goto cleanup;
+        }
+        /* reset err to return 0 if exiting */
+        err = 0;
+        // 处理时间,每过10s清空一次open_cnt.这样次数就变成了(平均)速率
+        time_t current_time = time(NULL);
+        if (current_time - start_time >= 100)
+        {
+            //reset open_cnt
+            skel->bss->open_cnt = 0;
+            // Reset the start time
+            start_time = current_time; 
+        }
+    }
+    
 cleanup:
-    perf_buffer__free(pb);
-    kprobe_bpf__destroy(skel);
+    perf_buffer__free(pb);
+    kprobe_bpf__destroy(skel);
 
-    return -err;
+    return -err;
 }
