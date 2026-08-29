@@ -186,14 +186,14 @@ void handle_event(void* ctx, int cpu, void* data, __u32 data_sz)
         break;
     }
     case CFI_VIOLATION:
-    {
-        printf("%-16s %-16s %-16d %-20s KILLED!!! \n", \
-            ts, &info.context.comm[0], info.context.pid, "CFI_VIOLATION");
-        //打印出堆栈信息
-        std::cout << "Hook function: " << bpf_ksyms_resolve(info.ip) << " (" << std::hex << info.ip << std::dec << ")" << std::endl;
-        std::cout << "Stack pointer: " << std::hex << info.reg_sp <<" - "<< info.current_sp << std::dec << std::endl;
-        break;
-    }
+    {
+        printf("%-16s %-16s %-16d %-20s KILLED!!! \n", \
+            ts, &info.context.comm[0], info.context.pid, "CFI_VIOLATION");
+        //打印出堆栈信息
+        printf("Hook function: %s (%lx)\n", bpf_ksyms_resolve(info.ip), (unsigned long)info.ip);
+        printf("Stack pointer: %lx - %lx\n", (unsigned long)info.reg_sp, (unsigned long)info.current_sp);
+        break;
+    }
     default:
         break;
     }
